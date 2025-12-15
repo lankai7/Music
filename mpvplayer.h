@@ -11,6 +11,13 @@
 #include <QString>
 #include <mpv/client.h>
 
+enum PlayMode {
+    PlaySequence,   // 顺序播放
+    PlayRandom,     // 随机播放
+    PlaySingleLoop  // 单曲循环
+};
+
+
 class MPVPlayer : public QObject
 {
     Q_OBJECT
@@ -31,6 +38,7 @@ signals:
     void positionChanged(qint64 ms);
     void durationChanged(qint64 ms);
     void stateChanged(bool playing);
+    void playbackFinished();
 
 private slots:
     void onPoll(); // 定时器轮询属性

@@ -50,10 +50,16 @@ private slots:
 
     void on_love_btn_clicked();
 
+    void on_collect_btn_clicked();
+
+    void on_mode_btn_clicked();
+
+    void onPlaybackFinished();
 private:
     Ui::MainWindow *ui;
     NetworkManager *m_net;
     MPVPlayer *m_player;
+    PlayMode m_playMode;   // 当前播放模式
 
     QList<NetworkManager::SearchItem> m_searchList;
     int m_currentIndex; // 当前播放索引（在 m_searchList 中），-1 表示无
@@ -62,6 +68,14 @@ private:
     void updatePlayPauseUI(bool playing);
     void resetMetadataDisplay();
     QString secondsToString(qint64 ms);
+    void addToFavorites(const NetworkManager::SearchItem &item);
+    bool isFavorited(int songId) const;
+    void removeFromFavorites(int songId);
+    void updateFavoriteButton();
+
+
+    void updatePlayModeButton();
+    void playNextByMode();
 };
 
 #endif // MAINWINDOW_H

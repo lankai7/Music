@@ -7,6 +7,8 @@
 #include "mainwindow.h"
 #include "ui_mainwindow.h"
 #include <QDebug>
+#include <QSettings>
+#include <QRandomGenerator>
 
 MainWindow::MainWindow(QWidget *parent)
     : QMainWindow(parent),
@@ -16,6 +18,10 @@ MainWindow::MainWindow(QWidget *parent)
       m_currentIndex(-1)
 {
     ui->setupUi(this);
+
+    on_host_btn_clicked();
+
+    m_playMode = PlaySequence;   // 默认顺序播放
 
     // 初始化 UI 初始状态（保持和 .ui 名称一致）
     ui->sliderVolume->setRange(0, 100);
@@ -35,6 +41,8 @@ MainWindow::MainWindow(QWidget *parent)
     connect(m_player, &MPVPlayer::positionChanged, this, &MainWindow::onPositionChanged);
     connect(m_player, &MPVPlayer::durationChanged, this, &MainWindow::onDurationChanged);
     connect(m_player, &MPVPlayer::stateChanged, this, &MainWindow::onPlayerStateChanged);
+    connect(m_player, &MPVPlayer::playbackFinished,this, &MainWindow::onPlaybackFinished);
+
 
     // 连接 UI 信号（explicit, 不使用自动槽名）
     // 回车触发搜索
@@ -113,6 +121,7 @@ void MainWindow::on_listResults_itemClicked(QListWidgetItem *item)
     // 请求真实播放地址
     ui->statusbar->showMessage("解析播放地址...");
     m_net->getUrlById(id);
+    updateFavoriteButton();
 }
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -139,6 +148,7 @@ void MainWindow::onGetUrlFinished(const NetworkManager::UrlResult &res)
     // 交给 mpv 播放（直接播放）
     m_player->playUrl(res.url);
     updatePlayPauseUI(true);
+    updateFavoriteButton();
 }
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -179,19 +189,22 @@ void MainWindow::on_btnPrev_clicked()
     m_net->fetchImage(it.picurl);
     ui->statusbar->showMessage("解析播放地址...");
     m_net->getUrlById(it.id);
+    updateFavoriteButton();
 }
 
 void MainWindow::on_btnNext_clicked()
 {
-    if (m_searchList.isEmpty()) return;
-    int n = m_searchList.size();
-    m_currentIndex = (m_currentIndex + 1) % n;
+//    if (m_searchList.isEmpty()) return;
+//    int n = m_searchList.size();
+//    m_currentIndex = (m_currentIndex + 1) % n;
 
-    const auto &it = m_searchList.at(m_currentIndex);
-    setMetadataFromSearchItem(it);
-    m_net->fetchImage(it.picurl);
-    ui->statusbar->showMessage("解析播放地址...");
-    m_net->getUrlById(it.id);
+//    const auto &it = m_searchList.at(m_currentIndex);
+//    setMetadataFromSearchItem(it);
+//    m_net->fetchImage(it.picurl);
+//    ui->statusbar->showMessage("解析播放地址...");
+//    m_net->getUrlById(it.id);
+//    updateFavoriteButton();
+    playNextByMode();
 }
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -270,6 +283,173 @@ QString MainWindow::secondsToString(qint64 ms)
     return QString("%1:%2").arg(m, 2, 10, QChar('0')).arg(s, 2, 10, QChar('0'));
 }
 
+void MainWindow::addToFavorites(const NetworkManager::SearchItem &item)
+{
+    QSettings st("favorites.ini", QSettings::IniFormat);
+    st.setIniCodec("UTF-8");
+
+    st.beginGroup("Favorites");
+    int count = st.value("count", 0).toInt();
+
+    // 防止重复收藏
+    for (int i = 0; i < count; ++i) {
+        st.beginGroup(QString::number(i));
+        int id = st.value("id").toInt();
+        st.endGroup();
+        if (id == item.id) {
+            ui->statusbar->showMessage("已在收藏中", 2000);
+            st.endGroup();
+            return;
+        }
+    }
+
+    // 写入新收藏
+    st.beginGroup(QString::number(count));
+    st.setValue("id", item.id);
+    st.setValue("title", item.title);
+    st.setValue("artist", item.singer);
+    st.setValue("picurl", item.picurl);
+    st.endGroup();
+
+    st.setValue("count", count + 1);
+    st.endGroup();
+
+    ui->statusbar->showMessage("已加入收藏", 2000);
+}
+
+bool MainWindow::isFavorited(int songId) const
+{
+    QSettings st("favorites.ini", QSettings::IniFormat);
+    st.setIniCodec("UTF-8");
+
+    st.beginGroup("Favorites");
+    int count = st.value("count", 0).toInt();
+
+    for (int i = 0; i < count; ++i) {
+        st.beginGroup(QString::number(i));
+        int id = st.value("id").toInt();
+        st.endGroup();
+
+        if (id == songId) {
+            st.endGroup();
+            return true;
+        }
+    }
+
+    st.endGroup();
+    return false;
+}
+
+void MainWindow::removeFromFavorites(int songId)
+{
+    QSettings st("favorites.ini", QSettings::IniFormat);
+    st.setIniCodec("UTF-8");
+
+    st.beginGroup("Favorites");
+    int count = st.value("count", 0).toInt();
+
+    QList<QVariantMap> remain;
+
+    for (int i = 0; i < count; ++i) {
+        st.beginGroup(QString::number(i));
+        int id = st.value("id").toInt();
+
+        if (id != songId) {
+            QVariantMap m;
+            m["id"] = id;
+            m["title"] = st.value("title");
+            m["artist"] = st.value("artist");
+            m["picurl"] = st.value("picurl");
+            remain.append(m);
+        }
+
+        st.endGroup();
+    }
+
+    // 清空并重写
+    st.remove("");
+    st.setValue("count", remain.size());
+
+    for (int i = 0; i < remain.size(); ++i) {
+        st.beginGroup(QString::number(i));
+        st.setValue("id", remain[i]["id"]);
+        st.setValue("title", remain[i]["title"]);
+        st.setValue("artist", remain[i]["artist"]);
+        st.setValue("picurl", remain[i]["picurl"]);
+        st.endGroup();
+    }
+
+    st.endGroup();
+
+    ui->statusbar->showMessage("已取消收藏", 2000);
+}
+
+void MainWindow::updateFavoriteButton()
+{
+    if (m_currentIndex < 0 || m_currentIndex >= m_searchList.size()) {
+        ui->collect_btn->setIcon(QIcon(":/image/res/heart_gray.png"));
+        return;
+    }
+
+    int id = m_searchList.at(m_currentIndex).id;
+
+    if (isFavorited(id)) {
+        ui->collect_btn->setIcon(QIcon(":/image/res/heart_red.png"));
+    } else {
+        ui->collect_btn->setIcon(QIcon(":/image/res/heart_gray.png"));
+    }
+}
+
+void MainWindow::updatePlayModeButton()
+{
+    switch (m_playMode) {
+    case PlaySequence:
+        ui->mode_btn->setIcon(QIcon(":/image/res/mode_sequence.png"));
+        break;
+    case PlayRandom:
+        ui->mode_btn->setIcon(QIcon(":/image/res/mode_random.png"));
+        break;
+    case PlaySingleLoop:
+        ui->mode_btn->setIcon(QIcon(":/image/res/mode_single.png"));
+        break;
+    }
+}
+
+void MainWindow::playNextByMode()
+{
+    if (m_searchList.isEmpty()) return;
+
+    int n = m_searchList.size();
+
+    switch (m_playMode) {
+
+    case PlaySequence:
+        m_currentIndex = (m_currentIndex + 1) % n;
+        break;
+
+    case PlayRandom:
+        if (n > 1) {
+            int newIndex;
+            do {
+                newIndex = QRandomGenerator::global()->bounded(n);
+            } while (newIndex == m_currentIndex);
+            m_currentIndex = newIndex;
+        }
+        break;
+
+    case PlaySingleLoop:
+        // index 不变
+        break;
+    }
+
+    const auto &it = m_searchList.at(m_currentIndex);
+    setMetadataFromSearchItem(it);
+    m_net->fetchImage(it.picurl);
+    ui->statusbar->showMessage("解析播放地址...");
+    m_net->getUrlById(it.id);
+}
+
+
 void MainWindow::on_host_btn_clicked()
 {
     ui->statusbar->showMessage("加载中...");
@@ -292,5 +472,83 @@ void MainWindow::on_new_btn_clicked()
 
 void MainWindow::on_love_btn_clicked()
 {
+    ui->listResults->clear();
+    m_searchList.clear();
+    m_currentIndex = -1;
 
+    QSettings st("favorites.ini", QSettings::IniFormat);
+    st.setIniCodec("UTF-8");
+
+    st.beginGroup("Favorites");
+    int count = st.value("count", 0).toInt();
+
+    for (int i = 0; i < count; ++i) {
+        st.beginGroup(QString::number(i));
+
+        NetworkManager::SearchItem it;
+        it.id = st.value("id").toInt();
+        it.title = st.value("title").toString();
+        it.singer = st.value("artist").toString();
+        it.picurl = st.value("picurl").toString();
+
+        st.endGroup();
+
+        m_searchList.append(it);
+
+        QListWidgetItem *item =
+            new QListWidgetItem(QString("%1 - %2").arg(it.title, it.singer));
+        item->setData(Qt::UserRole, it.id);
+        item->setData(Qt::UserRole + 1, i);
+        ui->listResults->addItem(item);
+    }
+
+    st.endGroup();
+
+    ui->statusbar->showMessage(QString("收藏 %1 首").arg(count), 3000);
+}
+
+void MainWindow::on_collect_btn_clicked()
+{
+    if (m_currentIndex < 0 || m_currentIndex >= m_searchList.size()) {
+            ui->statusbar->showMessage("没有正在播放的歌曲", 2000);
+            return;
+        }
+
+        const auto &item = m_searchList.at(m_currentIndex);
+
+        if (isFavorited(item.id)) {
+            removeFromFavorites(item.id);
+            on_love_btn_clicked();
+        } else {
+            addToFavorites(item);
+        }
+
+        updateFavoriteButton();
+}
+
+void MainWindow::on_mode_btn_clicked()
+{
+    switch (m_playMode) {
+        case PlaySequence:
+            m_playMode = PlayRandom;
+            ui->statusbar->showMessage("随机播放", 2000);
+            break;
+
+        case PlayRandom:
+            m_playMode = PlaySingleLoop;
+            ui->statusbar->showMessage("单曲循环", 2000);
+            break;
+
+        case PlaySingleLoop:
+            m_playMode = PlaySequence;
+            ui->statusbar->showMessage("顺序播放", 2000);
+            break;
+        }
+
+        updatePlayModeButton();
+}
+
+void MainWindow::onPlaybackFinished()
+{
+    playNextByMode();
 }

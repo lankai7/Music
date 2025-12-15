@@ -7,6 +7,7 @@ CONFIG += c++11
 INCLUDEPATH += $$PWD/3rd/mpv/include
 LIBS += -L$$PWD/3rd/mpv/lib -lmpv
 
+RC_ICONS = favicon.ico
 
 # The following define makes your compiler emit warnings if you use
 # any Qt feature that has been marked deprecated (the exact warnings

@@ -107,21 +107,34 @@ void MPVPlayer::onPoll()
 {
     if (!m_mpv) return;
 
-    // 获取 time-pos
+    /* ===== 1. 处理 mpv 事件 ===== */
+    while (true) {
+        mpv_event *event = mpv_wait_event(m_mpv, 0);
+        if (event->event_id == MPV_EVENT_NONE)
+            break;
+
+        if (event->event_id == MPV_EVENT_END_FILE) {
+            mpv_event_end_file *end =
+                (mpv_event_end_file *)event->data;
+
+            // 正常播放结束（不是 error / user stop）
+            if (end->reason == MPV_END_FILE_REASON_EOF) {
+                emit playbackFinished();
+            }
+        }
+    }
+
+    /* ===== 2. 原有进度轮询 ===== */
     double timePos = 0.0;
     if (mpv_get_property(m_mpv, "time-pos", MPV_FORMAT_DOUBLE, &timePos) >= 0) {
-        qint64 ms = qint64(timePos * 1000.0);
-        emit positionChanged(ms);
+        emit positionChanged(qint64(timePos * 1000));
     }
 
-    // 获取 duration
     double duration = 0.0;
     if (mpv_get_property(m_mpv, "duration", MPV_FORMAT_DOUBLE, &duration) >= 0) {
-        qint64 ms = qint64(duration * 1000.0);
-        emit durationChanged(ms);
+        emit durationChanged(qint64(duration * 1000));
     }
 
-    // 获取 pause 状态，更新播放状态（以 pause==0 为播放）
     int paused = 1;
     if (mpv_get_property(m_mpv, "pause", MPV_FORMAT_FLAG, &paused) >= 0) {
         bool playing = (paused == 0);
@@ -131,3 +144,4 @@ void MPVPlayer::onPoll()
         }
     }
 }
+

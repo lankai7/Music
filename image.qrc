@@ -5,5 +5,12 @@
         <file>res/play.png</file>
         <file>res/previous.png</file>
         <file>res/volume.png</file>
+        <file>res/heart_gray.png</file>
+        <file>res/heart_red.png</file>
+        <file>res/mode_random.png</file>
+        <file>res/mode_sequence.png</file>
+        <file>res/mode_single.png</file>
+        <file>favicon.ico</file>
+        <file>res/icon.png</file>
     </qresource>
 </RCC>
